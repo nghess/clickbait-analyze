@@ -28,7 +28,7 @@ def process_chunk(chunk, background_subtractor):
     centroids = []
     for frame in chunk:
         # Downsample the frame
-        frame = cv2.resize(frame, (0, 0), fx=1, fy=1)
+        frame = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5)
         
         # Apply background subtraction
         fg_mask = background_subtractor.apply(frame)

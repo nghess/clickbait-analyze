@@ -3,21 +3,22 @@ import numpy as np
 import pandas as pd
 import grid_maze as gm
 
-
+num = '9'
+file_dir = f'C:/centroid_extract_temp/1003/Clickbait {num}/'
 
 # Load video
-video = cv2.VideoCapture('input_files/video.avi')
+video = cv2.VideoCapture(f'{file_dir}video_session{num}.avi')
 # Get the total number of frames
 video_len = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
 video_width = int(video.get(cv2.CAP_PROP_FRAME_WIDTH))
 video_height = int(video.get(cv2.CAP_PROP_FRAME_HEIGHT))
 resize_factor = .5
 # Load video timestamps
-video_ts = pd.read_csv('input_files/video_timestamp.csv')
+video_ts = pd.read_csv(f'{file_dir}video_ts_session{num}.csv')
 video_ts.columns = ['timestamp']
 # Load event CSV
 col_names = ['trial_number', 'water_left', 'water_right', 'iti', 'reward_state', 'timestamp', 'target_cell']
-event_data = pd.read_csv('input_files/event_data.csv', usecols=range(7))
+event_data = pd.read_csv(f'{file_dir}events_session{num}.csv', usecols=range(7))
 event_data.columns = col_names
 #Set Types
 event_data = event_data.astype({
@@ -44,10 +45,10 @@ print(f"event_data.csv length: {len(event_data)}")
 print(event_data.head())
 
 # Generate grid maze
-grid_maze = gm.GridMaze((video_width//2,video_height//2), (5,2))
+grid_maze = gm.GridMaze((video_width//2,video_height//2), (10,4))
 
 # Initialize counter
-ii = 10000
+ii = 0
 state_color = (0,0,0)
 
 video.set(cv2.CAP_PROP_POS_FRAMES, ii)
@@ -87,6 +88,8 @@ while True:
 
     # Print trial number at top left corner
     cv2.putText(resized_frame, str(event_data['trial_number'][ii]), (10,20), cv2.FONT_HERSHEY_SIMPLEX, .5, state_color, 1, cv2.LINE_AA) 
+    # Print frame number at top left corner
+    cv2.putText(resized_frame, str(ii), (10,40), cv2.FONT_HERSHEY_SIMPLEX, .5, state_color, 1, cv2.LINE_AA) 
     # Print event_data timestamp at bottom left corner
     cv2.putText(resized_frame, str(event_data['timestamp'][ii])[:22], (10,height-30), cv2.FONT_HERSHEY_SIMPLEX, .5, (128,128,128), 1, cv2.LINE_AA) 
     # Print video_ts timestamp at bottom left corner

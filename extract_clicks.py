@@ -4,14 +4,15 @@ import pandas as pd
 
 
 # Params
-file_dir = 'retreat_files/centroid_extract/1003/session_9/'
+num = '5'
+file_dir = f'C:/centroid_extract_temp/1003/Clickbait {num}/'
 
 # Load video timestamps
-video_ts = pd.read_csv(f'{file_dir}video_timestamp.csv')
+video_ts = pd.read_csv(f'{file_dir}video_ts_session{num}.csv')
 video_ts.columns = ['timestamp']
 # Load event CSV
 col_names = ['trial_number', 'water_left', 'water_right', 'iti', 'reward_state', 'timestamp', 'target_cell']
-event_data = pd.read_csv(f'{file_dir}event_data.csv', usecols=range(7))
+event_data = pd.read_csv(f'{file_dir}events_session{num}.csv', usecols=range(7))
 event_data.columns = col_names
 #Set Types
 event_data = event_data.astype({
@@ -41,7 +42,7 @@ for ii in range(len(event_data)-1):
         click_frame.append(ii)
 
 # Write click_frame to CSV
-with open(f'{file_dir}click_frames.csv', 'w', newline='') as f:
+with open(f'{file_dir}click_frames_session{num}.csv', 'w', newline='') as f:
     writer = csv.writer(f)
     writer.writerow(click_frame)
 
