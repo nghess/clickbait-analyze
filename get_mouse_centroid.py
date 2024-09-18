@@ -61,14 +61,14 @@ def process_video(video_filename, csv_filename):
         writer.writerows(centroid_list)
 
 def main():
-    data_dir = 'T:/clickbait/data/no_implant'
+    data_dir = 'C:/centroid_extract_temp/'
     min_file_size = 1e9  # 1 GB
     datasets, sessions, files = scan_directories(data_dir, min_file_size, filetype='.avi')
     print(f"Located {len(files)} sessions")
 
     for ii, video_file in enumerate(files):
         video_filename = os.path.join(data_dir, datasets[ii], sessions[ii], files[ii])
-        csv_filename = os.path.join(data_dir, datasets[ii], sessions[ii], 'centroid.csv')
+        csv_filename = os.path.join(data_dir, datasets[ii], sessions[ii], 'centroid_gaussian.csv')
         print(f'Processing session {ii}: {video_filename}')
         process_video(video_filename, csv_filename)
 

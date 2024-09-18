@@ -28,7 +28,7 @@ def process_chunk(chunk, background_subtractor):
     centroids = []
     for frame in chunk:
         # Downsample the frame
-        frame = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5)
+        frame = cv2.resize(frame, (0, 0), fx=1, fy=1)
         
         # Apply background subtraction
         fg_mask = background_subtractor.apply(frame)
@@ -81,14 +81,14 @@ def process_video(video_filename, csv_filename):
         writer.writerows(all_centroids)
 
 def main():
-    data_dir = 'T:/clickbait/data/no_implant'
+    data_dir = 'C:/centroid_extract_temp/'
     min_file_size = 1e9  # 1 GB
     datasets, sessions, files = scan_directories(data_dir, min_file_size, filetype='.avi')
     print(f"Located {len(files)} sessions")
 
     for ii, video_file in enumerate(files):
         video_filename = os.path.join(data_dir, datasets[ii], sessions[ii], files[ii])
-        csv_filename = os.path.join(data_dir, datasets[ii], sessions[ii], 'centroid.csv')
+        csv_filename = os.path.join(data_dir, datasets[ii], sessions[ii], 'centroid_blur.csv')
         print(f'Processing session {ii}: {video_filename}')
         process_video(video_filename, csv_filename)
 
