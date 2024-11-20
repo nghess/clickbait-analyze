@@ -165,3 +165,133 @@ def visualize_trial(df, trial_number, color_code="trial_number", target_frame=Tr
 def generate_grid_location(df, grid_x=4, grid_y=9, dim_x=894, dim_y=1952):
     grid_loc_x = df['centroid_x']
     grid_loc_y = df['centroid_y']
+
+
+    #import pandas as pd
+#import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+def create_occupancy_histogram(df, x_col='x', y_col='y', bin_size=None, cmap='viridis',
+                             x_lim=None, y_lim=None, figsize=None):
+    """
+    Create a 2D occupancy histogram with square bins that respect spatial proportions.
+    
+    Parameters:
+    -----------
+    df : pandas.DataFrame
+        DataFrame containing coordinate data
+    x_col : str
+        Name of the column containing x coordinates
+    y_col : str
+        Name of the column containing y coordinates
+    bin_size : float
+        Size of each square bin (in coordinate units)
+    cmap : str
+        Colormap to use for the heatmap
+    x_lim : tuple
+        Tuple of (min, max) for x-axis limits
+    y_lim : tuple
+        Tuple of (min, max) for y-axis limits
+    figsize : tuple
+        Size of the figure in inches (width, height). If None, will be calculated
+        based on proportions.
+        
+    Returns:
+    --------
+    fig : matplotlib.figure.Figure
+        The created figure object
+    ax : matplotlib.axes.Axes
+        The axes object containing the plot
+    """
+    # Determine data limits if not provided
+    if x_lim is None:
+        x_lim = (df[x_col].min(), df[x_col].max())
+    if y_lim is None:
+        y_lim = (df[y_col].min(), df[y_col].max())
+    
+    # Calculate dimensions
+    x_range = x_lim[1] - x_lim[0]
+    y_range = y_lim[1] - y_lim[0]
+    
+    # If bin_size not provided, calculate it based on the smaller dimension
+    # aiming for approximately 50 bins in that dimension
+    if bin_size is None:
+        bin_size = min(x_range, y_range) / 50
+    
+    # Calculate number of bins for each dimension
+    # Using ceil to ensure we cover the entire range
+    n_bins_x = int(np.ceil(x_range / bin_size))
+    n_bins_y = int(np.ceil(y_range / bin_size))
+    
+    # Create edges for histogram
+    x_edges = np.linspace(x_lim[0], x_lim[1], n_bins_x + 1)
+    y_edges = np.linspace(y_lim[0], y_lim[1], n_bins_y + 1)
+    
+    # Calculate histogram
+    hist, _, _ = np.histogram2d(
+        df[x_col],
+        df[y_col],
+        bins=[x_edges, y_edges]
+    )
+    
+    # Calculate figure size if not provided
+    if figsize is None:
+        # Make the figure size proportional to the data dimensions
+        # while keeping a reasonable overall size
+        base_size = 8  # Base size for the smaller dimension
+        if x_range > y_range:
+            figsize = (base_size * (x_range / y_range), base_size)
+        else:
+            figsize = (base_size, base_size * (y_range / x_range))
+    
+    # Create figure and axis
+    fig, ax = plt.subplots(figsize=figsize)
+    
+    # Create heatmap
+    sns.heatmap(
+        hist.T,  # Transpose to match coordinate system
+        cmap=cmap,
+        cbar_kws={'label': 'Count'},
+        ax=ax,
+        square=True  # This ensures the bins are displayed as squares
+    )
+    
+    # Set labels and title
+    ax.set_xlabel(x_col)
+    ax.set_ylabel(y_col)
+    ax.set_title('Occupancy Histogram')
+    
+    # Calculate tick positions and labels
+    n_ticks = 5
+    x_ticks = np.linspace(0, n_bins_x, n_ticks)
+    y_ticks = np.linspace(0, n_bins_y, n_ticks)
+    x_tick_labels = np.linspace(x_lim[0], x_lim[1], n_ticks)
+    y_tick_labels = np.linspace(y_lim[0], y_lim[1], n_ticks)
+    
+    ax.set_xticks(x_ticks)
+    ax.set_yticks(y_ticks)
+    ax.set_xticklabels([f'{x:.1f}' for x in x_tick_labels])
+    ax.set_yticklabels([f'{y:.1f}' for y in y_tick_labels])
+    
+    # Invert y-axis to match coordinate system
+    ax.invert_yaxis()
+    
+    print(f"Grid size: {n_bins_x} x {n_bins_y} bins")
+    print(f"Bin size: {bin_size:.2f} units")
+    
+    return fig, ax
+
+# Example usage:
+"""
+# Sample data
+data = pd.DataFrame({
+    'x': [1, 2, 2, 3, 1, 2, 3, 1],
+    'y': [1, 1, 2, 2, 1, 1, 2, 2],
+    'time': range(8)
+})
+
+# Create the histogram
+fig, ax = create_occupancy_histogram(data)
+plt.show()
+"""
