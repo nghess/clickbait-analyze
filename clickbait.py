@@ -92,6 +92,9 @@ class BehaviorSession:
         
         # Load and process events
         self._load_events()
+
+        # Set video and event timestamp length equal
+        self._synchronize_timestamps()
         
         # Add computed columns
         self._add_computed_columns()
@@ -104,13 +107,13 @@ class BehaviorSession:
         
     def _load_events(self):
         """Load and process event data"""
-        # Load events A
+        # Load events csv part A
         col_names_a = ['trial_number', 'timestamp', 'poke_left', 'poke_right', 
                       'centroid_x', 'centroid_y', 'target_cell']
         event_data_a = pd.read_csv(f"{self.data_path}_eventsA.csv")
         event_data_a.columns = col_names_a
         
-        # Load events B
+        # Load events csv part B
         col_names_b = ['iti', 'reward_state', 'water_left', 'water_right', 'click']
         event_data_b = pd.read_csv(f"{self.data_path}_eventsB.csv")
         event_data_b.columns = col_names_b
@@ -162,8 +165,35 @@ class BehaviorSession:
         # Add gap column
         gap_thresh = 100
         self.event_data['gap'] = (self.event_data['distance'] >= gap_thresh).astype(np.uint8)
+
+    def _sync_events_to_video(self):
+        """Synchronize events data with video timestamps when events are longer"""
+        # Convert timestamps to datetime
+        self.video_ts['timestamp'] = pd.to_datetime(self.video_ts['timestamp'])
+        self.event_data['timestamp'] = pd.to_datetime(self.event_data['timestamp'])
+
+        # Set 'timestamp' as the index of each dataframe
+        video_ts_indexed = self.video_ts.set_index('timestamp')
+        event_data_indexed = self.event_data.set_index('timestamp')
+
+        # Map event_data onto the video_data timestamps, using nearest matches
+        self.event_data = event_data_indexed.reindex(video_ts_indexed.index, method='nearest')
+        self.event_data = self.event_data.reset_index()
         
-    def synchronize_timestamps(self):
+        print(f"Event data resampled to match video length:")
+        print(f"Video length: {len(self.video_ts)} frames")
+        print(f"Events Data Length: {len(self.event_data)} rows")
+
+    def _trim_video_timestamps(self):
+        """Trim video timestamps when video is longer than events"""
+        # Slice excess timestamps from beginning of timestamp list
+        self.video_ts, frame_idx = slice_video_timestamp(self.video_ts, self.event_data)
+        
+        print(f"Video timestamps trimmed by {frame_idx + 1} to match event data length:")
+        print(f"Video length: {len(self.video_ts)} frames")
+        print(f"Events Data Length: {len(self.event_data)} rows")
+        
+    def _synchronize_timestamps(self):
         """Synchronize video timestamps with event data"""
         if len(self.video_ts) < len(self.event_data):
             self._sync_events_to_video()
@@ -181,6 +211,7 @@ class BehaviorExperiment:
     def __init__(self, data_dir):
         self.data_dir = data_dir
         self.sessions = {}
+        self.summary_df = pd.DataFrame()
         
     def load_session(self, mouse_id, session_id, file_id):
         """Load a single session"""
@@ -197,6 +228,16 @@ class BehaviorExperiment:
         """Retrieve a specific session"""
         session_key = f"{mouse_id}_{session_id}"
         return self.sessions.get(session_key)
+    
+    def build_summary_df(self, mice, sessions):
+        """Build a summary dataframe"""
+        for idx in range(len(sessions)):
+            session = self.get_session(mice[idx], sessions[idx])
+            self.summary_df['mouse_id'] = mice[idx]
+            self.summary_df['session_id'] = sessions[idx]
+            self.summary_df['avg_velocity'] = session.event_data['distance'].mean()
+            self.summary_df['distance_traveled'] = session.event_data['distance'].sum()
+        return self.summary_df
 
 '''
 Grid
