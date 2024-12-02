@@ -1,11 +1,14 @@
 import os
 import re
 import cv2
+import ast
+import datetime
 import numpy as np
-import plotly.graph_objects as go
-import plotly.colors as colors
+import pandas as pd
 import plotly.io as pio
 import plotly.express as px
+import plotly.colors as colors
+import plotly.graph_objects as go
 
 '''
 File system
@@ -21,7 +24,7 @@ def scan_dataset(data_directory, min_size_bytes, filetype='.tif'):
     
     Returns:
         tuple: Three lists containing:
-            - dataset_list: Names of datasets (parent directories)
+            - mouse_list: IDs of mice (parent directories)
             - session_list: Names of sessions (sub-directories)
             - file_list: Names of files (without extensions)
     
@@ -36,7 +39,7 @@ def scan_dataset(data_directory, min_size_bytes, filetype='.tif'):
         """Removes file extension from a filename"""
         return re.sub(r'\..*$', '', filename)
 
-    dataset_list, session_list, file_list = [], [], []
+    mouse_list, session_list, file_list = [], [], []
 
     for root, _, files in os.walk(data_directory):
         # Skip directories containing specific keywords
@@ -55,11 +58,145 @@ def scan_dataset(data_directory, min_size_bytes, filetype='.tif'):
                 #assert len(path_parts) == 3, "Directory structure should be: dataset/session/file."
 
                 # Store the dataset (parent dir), session (sub-dir), and file names
-                dataset_list.append(path_parts[-2])
+                mouse_list.append(path_parts[-2])
                 session_list.append(path_parts[-1])
                 file_list.append(remove_file_extension(file))
 
-    return dataset_list, session_list, file_list
+    return mouse_list, session_list, file_list
+
+'''
+Data
+'''
+class BehaviorSession:
+    def __init__(self, data_dir, mouse_id, session_id, file_id):
+        self.data_dir = data_dir
+        self.mouse_id = mouse_id
+        self.session_id = session_id
+        self.file_id = file_id
+        self.data_path = f"{data_dir}{mouse_id}/{session_id}/{file_id}"
+        
+        # Initialize data containers
+        self.video_ts = None
+        self.event_data = None
+        self.video_filename = None
+        
+        # Load the session data
+        self._load_session_data()
+        
+    def _load_session_data(self):
+        """Internal method to load all session data"""
+        self.video_filename = f"{self.data_path}.avi"
+        
+        # Load and process timestamps
+        self._load_timestamps()
+        
+        # Load and process events
+        self._load_events()
+        
+        # Add computed columns
+        self._add_computed_columns()
+        
+    def _load_timestamps(self):
+        """Load video timestamps"""
+        self.video_ts = pd.read_csv(f"{self.data_path}_video_timestamp.csv")
+        self.video_ts.columns = ['timestamp']
+        self.video_ts = self.video_ts.astype({'timestamp': 'datetime64[ns]'})
+        
+    def _load_events(self):
+        """Load and process event data"""
+        # Load events A
+        col_names_a = ['trial_number', 'timestamp', 'poke_left', 'poke_right', 
+                      'centroid_x', 'centroid_y', 'target_cell']
+        event_data_a = pd.read_csv(f"{self.data_path}_eventsA.csv")
+        event_data_a.columns = col_names_a
+        
+        # Load events B
+        col_names_b = ['iti', 'reward_state', 'water_left', 'water_right', 'click']
+        event_data_b = pd.read_csv(f"{self.data_path}_eventsB.csv")
+        event_data_b.columns = col_names_b
+        
+        # Combine and process
+        self._combine_events(event_data_a, event_data_b)
+        
+    def _combine_events(self, event_data_a, event_data_b):
+        """Combine and validate event data"""
+        if len(event_data_a) != len(event_data_b):
+            print("Event dataframes must contain same number of rows")
+            min_length = min(len(event_data_a), len(event_data_b))
+            max_length = max(len(event_data_a), len(event_data_b))
+            print(f"Trimmed long dataframe by {max_length-min_length} rows.")
+            event_data_a = event_data_a.iloc[:min_length]
+            event_data_b = event_data_b.iloc[:min_length]
+            
+        self.event_data = pd.concat([event_data_a, event_data_b], axis=1)
+        self._set_datatypes()
+        
+    def _set_datatypes(self):
+        """Set proper datatypes for all columns"""
+        self.event_data = self.event_data.astype({
+            'trial_number': 'uint8',
+            'timestamp': 'datetime64[ns]',
+            'poke_left': 'bool',
+            'poke_right': 'bool',
+            'centroid_x': 'uint16',
+            'centroid_y': 'uint16',
+            'target_cell': 'str',
+            'iti': 'bool',
+            'water_left': 'bool',
+            'water_right': 'bool',
+            'reward_state': 'bool',
+            'click': 'bool'
+        })
+        self.event_data['target_cell'] = self.event_data['target_cell'].apply(ast.literal_eval)
+        
+    def _add_computed_columns(self):
+        """Add computed columns to event_data"""
+        # Add distance column
+        self.event_data['distance'] = np.sqrt(
+            (self.event_data['centroid_x'] - self.event_data['centroid_x'].shift(1))**2 + 
+            (self.event_data['centroid_y'] - self.event_data['centroid_y'].shift(1))**2)
+            
+        # Add frame_ms column
+        self.event_data['frame_ms'] = self.event_data['timestamp'].diff().dt.total_seconds() * 1000
+        
+        # Add gap column
+        gap_thresh = 100
+        self.event_data['gap'] = (self.event_data['distance'] >= gap_thresh).astype(np.uint8)
+        
+    def synchronize_timestamps(self):
+        """Synchronize video timestamps with event data"""
+        if len(self.video_ts) < len(self.event_data):
+            self._sync_events_to_video()
+        elif len(self.video_ts) > len(self.event_data):
+            self._trim_video_timestamps()
+            
+    def get_session_info(self):
+        """Print session information"""
+        print(f"Mouse: {self.mouse_id} Session: {self.session_id}")
+        print(f"Video length: {len(self.video_ts)} frames")
+        print(f"Events Data Length: {len(self.event_data)} rows")
+        print(f"Video length at 50.6 FPS: {len(self.video_ts)/50.6/60:.2f} minutes")
+
+class BehaviorExperiment:
+    def __init__(self, data_dir):
+        self.data_dir = data_dir
+        self.sessions = {}
+        
+    def load_session(self, mouse_id, session_id, file_id):
+        """Load a single session"""
+        session_key = f"{mouse_id}_{session_id}"
+        print(f"Loading session: {session_key}")
+        self.sessions[session_key] = BehaviorSession(self.data_dir, mouse_id, session_id, file_id)
+        
+    def load_all_sessions(self, mice, sessions, files):
+        """Load all sessions from provided lists"""
+        for idx in range(len(mice)):
+            self.load_session(mice[idx], sessions[idx], files[idx])
+            
+    def get_session(self, mouse_id, session_id):
+        """Retrieve a specific session"""
+        session_key = f"{mouse_id}_{session_id}"
+        return self.sessions.get(session_key)
 
 '''
 Grid
