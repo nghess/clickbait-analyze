@@ -10,6 +10,9 @@ import plotly.express as px
 import plotly.colors as colors
 import plotly.graph_objects as go
 
+import matplotlib.pyplot as plt
+from scipy.ndimage import gaussian_filter
+
 '''
 File system
 '''
@@ -163,12 +166,16 @@ class BehaviorSession:
         self.event_data['distance'] = np.sqrt(
             (self.event_data['centroid_x'] - self.event_data['centroid_x'].shift(1))**2 + 
             (self.event_data['centroid_y'] - self.event_data['centroid_y'].shift(1))**2)
+                
+        # Add drinking column 
+        self.event_data['drinking'] = (self.event_data['poke_left'] | self.event_data['poke_right']).astype(np.uint8)
             
         # Add frame_ms column
         self.event_data['frame_ms'] = self.event_data['timestamp'].diff().dt.total_seconds() * 1000
         
         # Add gap column
         self.event_data['gap'] = (self.event_data['distance'] >= gap_threshold).astype(np.uint8)
+
 
     def _heal_gaps(self, gap_threshold=100):
         """If gaps (values greater than gap_threshold) are found in the distance column, fill them with the previous distance value"""
@@ -252,6 +259,11 @@ class BehaviorExperiment:
         for mouse in mice:
             mouse_counts[mouse] = mouse_counts.get(mouse, 0) + 1
             enumerated_sessions.append(mouse_counts[mouse])
+
+        # # Check session lengths (add this to build_summary_df)
+        # for idx, sesh in enumerate(self.sessions):
+        # session = self.get_session(mice[idx], sessions[idx])
+        # print(f"{idx} {mice[idx]}-{sessions[idx]}: {session.event_data['trial_number'].max()}: {len(session.video_ts)/50.6/60:.2f} minutes")
         
         self.summary_df = pd.DataFrame({
             'mouse_id': mice,
@@ -259,7 +271,8 @@ class BehaviorExperiment:
             'session_number': enumerated_sessions,
             'avg_velocity': [session.event_data['distance'].mean() for session in all_sessions],
             'distance_traveled': [session.event_data['distance'].sum() for session in all_sessions],
-            'trials_completed': [session.event_data['trial_number'].max() for session in all_sessions]
+            'trials_completed': [session.event_data['trial_number'].max() for session in all_sessions],
+            'video_length': [len(session.video_ts)/50.6/60 for session in all_sessions]
         })
     
     
@@ -354,6 +367,58 @@ def slice_video_timestamp(df_to_trim, reference_df, timestamp_col='timestamp'):
 '''
 Data Visualization
 '''
+
+def visualize_occupancy_heatmap(df, grid_x=9, grid_y=20, dim_x=894, dim_y=1952, colorscale='viridis', sigma=2, log_scale=False, normalize=False):
+    # Create histogram
+    hist, x_edges, y_edges = np.histogram2d(
+        df['centroid_x'], 
+        df['centroid_y'],
+        bins=[grid_x, grid_y],
+        range=[[0, dim_x], [0, dim_y]]  # Set range from 0 to dimensions
+    )
+
+    # Convert to probability density if requested
+    if normalize:
+        hist = hist / hist.sum()
+
+    # Apply Gaussian smoothing
+    hist_smooth = gaussian_filter(hist.T, sigma=sigma)
+
+    # Apply log scaling if requested
+    if log_scale:
+        hist_smooth = np.log1p(hist_smooth)  # log1p adds 1 before taking log to handle zeros
+
+    # Create the plot
+    fig, ax = plt.subplots(figsize=(9, 20))
+    im = ax.imshow(hist_smooth, 
+                   cmap=colorscale,
+                   extent=(0, dim_x, 0, dim_y),  # Set extent from 0 to dimensions
+                   aspect='auto',
+                   origin='lower')
+
+    # Add colorbar with appropriate label
+    if normalize and log_scale:
+        label = 'Log Probability Density'
+    elif normalize:
+        label = 'Probability Density'
+    elif log_scale:
+        label = 'Log Occupancy Count'
+    else:
+        label = 'Occupancy Count'
+    plt.colorbar(im, ax=ax, label=label)
+
+    # Set labels and title
+    ax.set_xlabel('X Coordinate')
+    ax.set_ylabel('Y Coordinate')
+    ax.set_title(f"Mouse Occupancy Heatmap")
+
+    # Set ticks
+    ax.set_xticks(np.linspace(0, dim_x, grid_x+1))
+    ax.set_yticks(np.linspace(0, dim_y, grid_y+1))
+
+    plt.tight_layout()
+    plt.show()
+
 def visualize_trial_trajectory(df, trial_number, color_code="trial_number", target_frame=True, grid_x=4, grid_y=9, dim_x=894, dim_y=1952, opacity=1.0):
     assert color_code in(['trial_number', 'frame_number', 'velocity']), "Valid color codes are 'trial_number', 'frame_number', and 'velocity'."
     
