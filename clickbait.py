@@ -206,6 +206,7 @@ class BehaviorSession:
     def print_session_info(self):
         """Print session information"""
         print(f"Mouse: {self.mouse_id} Session: {self.session_id}")
+        print(f"Trials Completed: {self.event_data['trial_number'].max()}")
         print(f"Video length: {len(self.video_ts)} frames")
         print(f"Events Data Length: {len(self.event_data)} rows")
         print(f"Video length at 50.6 FPS: {len(self.video_ts)/50.6/60:.2f} minutes")
@@ -238,15 +239,23 @@ class BehaviorExperiment:
         # Zip together mice and session pairs
         all_sessions = [self.get_session(m, s) for m, s in zip(mice, sessions)]
         
+        # Create enumerated session IDs for each mouse
+        mouse_counts = {}
+        enumerated_sessions = []
+        for mouse in mice:
+            mouse_counts[mouse] = mouse_counts.get(mouse, 0) + 1
+            enumerated_sessions.append(mouse_counts[mouse])
+        
         self.summary_df = pd.DataFrame({
             'mouse_id': mice,
             'session_id': sessions,
+            'session_number': enumerated_sessions,
             'avg_velocity': [session.event_data['distance'].mean() for session in all_sessions],
-            'distance_traveled': [session.event_data['distance'].sum() for session in all_sessions]
+            'distance_traveled': [session.event_data['distance'].sum() for session in all_sessions],
+            'trials_completed': [session.event_data['trial_number'].max() for session in all_sessions]
         })
     
     
-
 '''
 Grid
 '''
@@ -338,7 +347,7 @@ def slice_video_timestamp(df_to_trim, reference_df, timestamp_col='timestamp'):
 '''
 Data Visualization
 '''
-def visualize_trial(df, trial_number, color_code="trial_number", target_frame=True, grid_x=4, grid_y=9, dim_x=894, dim_y=1952, opacity=1.0):
+def visualize_trial_trajectory(df, trial_number, color_code="trial_number", target_frame=True, grid_x=4, grid_y=9, dim_x=894, dim_y=1952, opacity=1.0):
     assert color_code in(['trial_number', 'frame_number', 'velocity']), "Valid color codes are 'trial_number', 'frame_number', and 'velocity'."
     
     df = df.loc[df['trial_number'].isin(trial_number)].copy()
@@ -380,6 +389,89 @@ def visualize_trial(df, trial_number, color_code="trial_number", target_frame=Tr
     # Show the plot
     fig.show()
 
-def generate_grid_location(df, grid_x=4, grid_y=9, dim_x=894, dim_y=1952):
-    grid_loc_x = df['centroid_x']
-    grid_loc_y = df['centroid_y']
+
+def linear_regression_plot(df, dv, iv, dv_name:str, iv_name:str):
+    fig = go.Figure()
+
+    # Add scatter plot
+    fig.add_trace(
+        go.Scatter(
+            x=df[iv], 
+            y=df[dv],
+            mode='markers',
+            name=dv_name,
+            showlegend=True,
+            marker=dict(
+                color=df['mouse_id'].astype('category').cat.codes,
+                colorscale='Viridis'
+            )
+        )
+    )
+
+    # Fit line
+    z = np.polyfit(df[iv], df[dv], 1)
+    p = np.poly1d(z)
+    
+    # Calculate 95% confidence interval
+    n = len(df)
+    x_mean = df[iv].mean()
+    
+    # Sum of squares of x
+    x_sq = np.sum((df[iv] - x_mean) ** 2)
+    
+    # Standard error of the estimate
+    y_hat = p(df[iv])
+    std_err = np.sqrt(np.sum((df[dv] - y_hat) ** 2) / (n-2))
+    
+    # Calculate confidence interval
+    x_new = np.linspace(df[iv].min(), df[iv].max(), 100)
+    y_new = p(x_new)
+    
+    # Confidence interval
+    from scipy import stats
+    conf_interval = stats.t.ppf(0.975, n-2) * std_err * np.sqrt(1/n + (x_new - x_mean)**2 / x_sq)
+    
+    # Add fitted line
+    fig.add_trace(
+        go.Scatter(
+            x=x_new,
+            y=y_new,
+            mode='lines',
+            name='Fitted Line',
+            line=dict(color='red')
+        )
+    )
+    
+    # Add confidence intervals
+    fig.add_trace(
+        go.Scatter(
+            x=x_new,
+            y=y_new + conf_interval,
+            mode='lines',
+            line=dict(width=0),
+            showlegend=False
+        )
+    )
+    
+    fig.add_trace(
+        go.Scatter(
+            x=x_new,
+            y=y_new - conf_interval,
+            mode='lines',
+            line=dict(width=0),
+            fill='tonexty',
+            name='95% CI',
+            fillcolor='rgba(255,0,0,0.2)'
+        )
+    )
+
+    # Update layout
+    fig.update_layout(
+        title=f'{dv_name} by {iv_name}',
+        xaxis_title=iv_name,
+        yaxis_title=dv_name,
+        hovermode='x unified'
+    )
+    
+    fig.show()
+
