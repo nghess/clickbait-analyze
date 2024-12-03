@@ -98,6 +98,9 @@ class BehaviorSession:
         
         # Add computed columns
         self._add_computed_columns()
+
+        # Heal gaps
+        self._heal_gaps()
         
     def _load_timestamps(self):
         """Load video timestamps"""
@@ -166,6 +169,10 @@ class BehaviorSession:
         
         # Add gap column
         self.event_data['gap'] = (self.event_data['distance'] >= gap_threshold).astype(np.uint8)
+
+    def _heal_gaps(self, gap_threshold=100):
+        """If gaps (values greater than gap_threshold) are found in the distance column, fill them with the previous distance value"""
+        self.event_data.loc[self.event_data['distance'] >= gap_threshold, 'distance'] = self.event_data['distance'].shift(1)
 
     def _sync_events_to_video(self, echo=False):
         """Synchronize events data with video timestamps when events are longer"""
@@ -390,7 +397,11 @@ def visualize_trial_trajectory(df, trial_number, color_code="trial_number", targ
     fig.show()
 
 
-def linear_regression_plot(df, dv, iv, dv_name:str, iv_name:str):
+def linear_regression_plot(df, dv, iv, dv_name:str, iv_name:str, error_type='CI'):
+    """
+    Plot linear regression with error bars.
+    error_type: 'CI' for 95% confidence interval, 'SEM' for standard error of the mean
+    """
     fig = go.Figure()
 
     # Add scatter plot
@@ -403,7 +414,7 @@ def linear_regression_plot(df, dv, iv, dv_name:str, iv_name:str):
             showlegend=True,
             marker=dict(
                 color=df['mouse_id'].astype('category').cat.codes,
-                colorscale='Viridis'
+                colorscale='RdBu'
             )
         )
     )
@@ -412,24 +423,25 @@ def linear_regression_plot(df, dv, iv, dv_name:str, iv_name:str):
     z = np.polyfit(df[iv], df[dv], 1)
     p = np.poly1d(z)
     
-    # Calculate 95% confidence interval
+    # Calculate error metrics
     n = len(df)
     x_mean = df[iv].mean()
-    
-    # Sum of squares of x
     x_sq = np.sum((df[iv] - x_mean) ** 2)
-    
-    # Standard error of the estimate
     y_hat = p(df[iv])
     std_err = np.sqrt(np.sum((df[dv] - y_hat) ** 2) / (n-2))
     
-    # Calculate confidence interval
+    # Calculate points for plotting
     x_new = np.linspace(df[iv].min(), df[iv].max(), 100)
     y_new = p(x_new)
     
-    # Confidence interval
-    from scipy import stats
-    conf_interval = stats.t.ppf(0.975, n-2) * std_err * np.sqrt(1/n + (x_new - x_mean)**2 / x_sq)
+    # Calculate error bars based on type
+    if error_type == 'CI':
+        from scipy import stats
+        error_margin = stats.t.ppf(0.975, n-2) * std_err * np.sqrt(1/n + (x_new - x_mean)**2 / x_sq)
+        error_name = '95% CI'
+    else:  # SEM
+        error_margin = std_err * np.sqrt(1/n + (x_new - x_mean)**2 / x_sq)
+        error_name = 'SEM'
     
     # Add fitted line
     fig.add_trace(
@@ -442,11 +454,11 @@ def linear_regression_plot(df, dv, iv, dv_name:str, iv_name:str):
         )
     )
     
-    # Add confidence intervals
+    # Add error bands
     fig.add_trace(
         go.Scatter(
             x=x_new,
-            y=y_new + conf_interval,
+            y=y_new + error_margin,
             mode='lines',
             line=dict(width=0),
             showlegend=False
@@ -456,11 +468,11 @@ def linear_regression_plot(df, dv, iv, dv_name:str, iv_name:str):
     fig.add_trace(
         go.Scatter(
             x=x_new,
-            y=y_new - conf_interval,
+            y=y_new - error_margin,
             mode='lines',
             line=dict(width=0),
             fill='tonexty',
-            name='95% CI',
+            name=error_name,
             fillcolor='rgba(255,0,0,0.2)'
         )
     )
