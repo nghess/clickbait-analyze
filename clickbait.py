@@ -121,13 +121,15 @@ class BehaviorSession:
         # Combine and process
         self._combine_events(event_data_a, event_data_b)
         
-    def _combine_events(self, event_data_a, event_data_b):
+    def _combine_events(self, event_data_a, event_data_b, echo=False):
         """Combine and validate event data"""
         if len(event_data_a) != len(event_data_b):
-            print("Event dataframes must contain same number of rows")
+            if echo:
+                print("Event dataframes must contain same number of rows")
             min_length = min(len(event_data_a), len(event_data_b))
             max_length = max(len(event_data_a), len(event_data_b))
-            print(f"Trimmed long dataframe by {max_length-min_length} rows.")
+            if echo:
+                print(f"Trimmed long dataframe by {max_length-min_length} rows.")
             event_data_a = event_data_a.iloc[:min_length]
             event_data_b = event_data_b.iloc[:min_length]
             
@@ -152,7 +154,7 @@ class BehaviorSession:
         })
         self.event_data['target_cell'] = self.event_data['target_cell'].apply(ast.literal_eval)
         
-    def _add_computed_columns(self):
+    def _add_computed_columns(self, gap_threshold=100):
         """Add computed columns to event_data"""
         # Add distance column
         self.event_data['distance'] = np.sqrt(
@@ -163,10 +165,9 @@ class BehaviorSession:
         self.event_data['frame_ms'] = self.event_data['timestamp'].diff().dt.total_seconds() * 1000
         
         # Add gap column
-        gap_thresh = 100
-        self.event_data['gap'] = (self.event_data['distance'] >= gap_thresh).astype(np.uint8)
+        self.event_data['gap'] = (self.event_data['distance'] >= gap_threshold).astype(np.uint8)
 
-    def _sync_events_to_video(self):
+    def _sync_events_to_video(self, echo=False):
         """Synchronize events data with video timestamps when events are longer"""
         # Convert timestamps to datetime
         self.video_ts['timestamp'] = pd.to_datetime(self.video_ts['timestamp'])
@@ -180,18 +181,20 @@ class BehaviorSession:
         self.event_data = event_data_indexed.reindex(video_ts_indexed.index, method='nearest')
         self.event_data = self.event_data.reset_index()
         
-        print(f"Event data resampled to match video length:")
-        print(f"Video length: {len(self.video_ts)} frames")
-        print(f"Events Data Length: {len(self.event_data)} rows")
+        if echo:
+            print(f"Event data resampled to match video length:")
+            print(f"Video length: {len(self.video_ts)} frames")
+            print(f"Events Data Length: {len(self.event_data)} rows")
 
-    def _trim_video_timestamps(self):
+    def _trim_video_timestamps(self, echo=False):
         """Trim video timestamps when video is longer than events"""
         # Slice excess timestamps from beginning of timestamp list
         self.video_ts, frame_idx = slice_video_timestamp(self.video_ts, self.event_data)
         
-        print(f"Video timestamps trimmed by {frame_idx + 1} to match event data length:")
-        print(f"Video length: {len(self.video_ts)} frames")
-        print(f"Events Data Length: {len(self.event_data)} rows")
+        if echo:
+            print(f"Video timestamps trimmed by {frame_idx + 1} to match event data length:")
+            print(f"Video length: {len(self.video_ts)} frames")
+            print(f"Events Data Length: {len(self.event_data)} rows")
         
     def _synchronize_timestamps(self):
         """Synchronize video timestamps with event data"""
@@ -200,7 +203,7 @@ class BehaviorSession:
         elif len(self.video_ts) > len(self.event_data):
             self._trim_video_timestamps()
             
-    def get_session_info(self):
+    def print_session_info(self):
         """Print session information"""
         print(f"Mouse: {self.mouse_id} Session: {self.session_id}")
         print(f"Video length: {len(self.video_ts)} frames")
@@ -213,10 +216,11 @@ class BehaviorExperiment:
         self.sessions = {}
         self.summary_df = pd.DataFrame()
         
-    def load_session(self, mouse_id, session_id, file_id):
+    def load_session(self, mouse_id, session_id, file_id, echo=False):
         """Load a single session"""
         session_key = f"{mouse_id}_{session_id}"
-        print(f"Loading session: {session_key}")
+        if echo:
+            print(f"Loading session: {session_key}")
         self.sessions[session_key] = BehaviorSession(self.data_dir, mouse_id, session_id, file_id)
         
     def load_all_sessions(self, mice, sessions, files):
@@ -231,13 +235,17 @@ class BehaviorExperiment:
     
     def build_summary_df(self, mice, sessions):
         """Build a summary dataframe"""
-        for idx in range(len(sessions)):
-            session = self.get_session(mice[idx], sessions[idx])
-            self.summary_df['mouse_id'] = mice[idx]
-            self.summary_df['session_id'] = sessions[idx]
-            self.summary_df['avg_velocity'] = session.event_data['distance'].mean()
-            self.summary_df['distance_traveled'] = session.event_data['distance'].sum()
-        return self.summary_df
+        # Zip together mice and session pairs
+        all_sessions = [self.get_session(m, s) for m, s in zip(mice, sessions)]
+        
+        self.summary_df = pd.DataFrame({
+            'mouse_id': mice,
+            'session_id': sessions,
+            'avg_velocity': [session.event_data['distance'].mean() for session in all_sessions],
+            'distance_traveled': [session.event_data['distance'].sum() for session in all_sessions]
+        })
+    
+    
 
 '''
 Grid
@@ -306,7 +314,6 @@ class GridMaze:
         # Blend the overlay with the original frame
         return cv2.addWeighted(overlay, opacity, frame, 1 - opacity, 0)
     
-
     def get_mouse_cell(self, centroid_x, centroid_y):    
         # Calculate grid position accounting for border
         grid_i = int(centroid_y // self.cellsize_i)  # Subtract 1 to account for border
@@ -347,7 +354,6 @@ def visualize_trial(df, trial_number, color_code="trial_number", target_frame=Tr
     # Add target frame locations
     if target_frame:
         target_idx = df.index[df['reward_state'] & ~df['reward_state'].shift(1).fillna(False)]
-        print(target_idx)
         fig.add_scatter(
         x=df['centroid_x'][target_idx],
         y=df['centroid_y'][target_idx],
