@@ -250,6 +250,14 @@ class BehaviorExperiment:
     
     def build_summary_df(self, mice, sessions):
         """Build a summary dataframe"""
+
+        def filtered_mean_distance(session, reward_state=False, drinking=False, iti=False):
+            mask = (
+            (session.event_data['reward_state'] == reward_state) & 
+            (session.event_data['poke_left'] | session.event_data['poke_right'] == drinking) & 
+            (session.event_data['iti'] == iti))
+            return session.event_data[mask]['distance'].mean()
+    
         # Zip together mice and session pairs
         all_sessions = [self.get_session(m, s) for m, s in zip(mice, sessions)]
         
@@ -260,7 +268,6 @@ class BehaviorExperiment:
             mouse_counts[mouse] = mouse_counts.get(mouse, 0) + 1
             enumerated_sessions.append(mouse_counts[mouse])
 
-       
         self.summary_df = pd.DataFrame({
             'mouse_id': mice,
             'session_id': sessions,
@@ -268,6 +275,8 @@ class BehaviorExperiment:
             'avg_velocity': [session.event_data['distance'].mean() for session in all_sessions],
             'distance_traveled': [session.event_data['distance'].sum() for session in all_sessions],
             'trials_completed': [session.event_data['trial_number'].max() for session in all_sessions],
+            'search_velocity': [filtered_mean_distance(session, reward_state=False, iti=True) for session in all_sessions],
+            'reward_velocity': [filtered_mean_distance(session, reward_state=True) for session in all_sessions],
             'video_length': [round(len(session.video_ts)/50.6/60, 2) for session in all_sessions]
         })
     
@@ -486,8 +495,9 @@ def linear_regression_plot(df, dv, iv, dv_name:str, iv_name:str, error_type='CI'
             name=dv_name,
             showlegend=True,
             marker=dict(
-                color=df['mouse_id'].astype('category').cat.codes,
-                colorscale='RdBu'
+                color='gray', #df['mouse_id'].astype('category').cat.codes,
+                #colorscale='Turbo',
+                symbol=df['mouse_id'].astype('category').cat.codes
             )
         )
     )
